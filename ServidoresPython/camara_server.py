@@ -18,7 +18,7 @@ app = Flask(__name__)
 MQTT_BROKER = "broker.emqx.io"
 TOPIC_IA = "vibrasight/jorge_hazziel/ia"
 TOPIC_COMANDO = "vibrasight/jorge_hazziel/comando"
-URL_CAMARA = "http://192.168.213.137:8080/shot.jpg"
+URL_CAMARA = "http://192.168.100.124:8080/shot.jpg"
 
 frame_procesado = None
 lock_memoria = threading.Lock()
