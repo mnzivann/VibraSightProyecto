@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "197432860991",
+    "project_id": "sistemasprog-d434f",
+    "storage_bucket": "sistemasprog-d434f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:197432860991:android:cd3278d2c2680449efb38a",
+        "android_client_info": {
+          "package_name": "com.example.vibrasight"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC0k4K7Nj_A_wtYtnNqRmXw9WC4KcteaEY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
