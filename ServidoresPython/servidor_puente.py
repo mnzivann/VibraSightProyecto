@@ -99,7 +99,12 @@ def on_message(client, userdata, msg):
 
         elif msg.topic == TOPIC_IA:
             if payload.get("presencia_ia") is True:
-                print("Evento: IA detectó presencia. Subiendo datos a la nube...")
+                print("Evento: IA detectó presencia. Subiendo datos y activando alarma...")
+
+                # la IA confirme un rostro, el servidor de Python le mande por MQTT
+                # la orden al ESP32 para que suene el zumbador (como un aviso de "acceso denegado" o "rostro detectado").
+                client.publish(TOPIC_COMANDO_ESP32, json.dumps({"zumbador": True}))
+                
                 threading.Thread(target=tarea_firebase_base_datos, args=("sensores", "lecturas_actuales", payload, True)).start()
                 threading.Thread(target=tarea_firebase_notificacion, args=("IA Identificacion", "Se confirma persona en la puerta.")).start()
                 registrar_alerta_asincrona("IA Confirmada", "Rostro identificado tras toque de timbre.")
