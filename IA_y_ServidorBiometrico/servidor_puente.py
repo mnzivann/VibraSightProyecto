@@ -70,13 +70,24 @@ def registrar_alerta_asincrona(tipo, descripcion):
 # ESCUCHA DE COMANDOS Y REGISTROS DESDE LA APP (CONTROL BIDIRECCIONAL)
 # ==============================================================================
 def escuchar_comandos_app():
-    """Se suscribe a Firebase para escuchar cuando el usuario presiona el boton en la App."""
+    """Se suscribe a Firebase para escuchar cuando el usuario presiona botones en la App."""
     def on_snapshot(doc_snapshot, changes, read_time):
         for doc in doc_snapshot:
-            if doc.exists and doc.to_dict().get("activar_zumbador") is True:
-                print("ORDEN REMOTA: Activando zumbador desde la App...")
-                cliente_mqtt.publish(TOPIC_COMANDO_ESP32, json.dumps({"zumbador": True}))
-                db.collection("comandos").document("app").update({"activar_zumbador": False})
+            if doc.exists:
+                datos = doc.to_dict()
+                
+                # 1. Comando: Zumbador
+                if datos.get("activar_zumbador") is True:
+                    print("ORDEN REMOTA: Activando zumbador desde la App...")
+                    cliente_mqtt.publish(TOPIC_COMANDO_ESP32, json.dumps({"zumbador": True}))
+                    db.collection("comandos").document("app").update({"activar_zumbador": False})
+                
+                # 2. Comando: Intercomunicador OLED
+                if "mensaje_oled" in datos and datos["mensaje_oled"] != "":
+                    mensaje_recibido = datos["mensaje_oled"]
+                    print(f"ORDEN REMOTA: Mensaje OLED recibido -> '{mensaje_recibido}'")
+                    cliente_mqtt.publish(TOPIC_COMANDO_ESP32, json.dumps({"mensaje_oled": mensaje_recibido}))
+                    db.collection("comandos").document("app").update({"mensaje_oled": ""})
                 
     print("Suscrito a comandos remotos de la App.")
     db.collection("comandos").document("app").on_snapshot(on_snapshot)
@@ -113,7 +124,7 @@ def escuchar_registros_biometricos():
                         cliente_mqtt.publish(TOPIC_COMANDO_CAMARA, json.dumps({"accion": "recargar_biometria"}))
                         
                         # ====================================================================
-                        # NUEVO: Guardar el registro permanente en Firestore para la pestaña de la App
+                        # Guardar el registro permanente en Firestore para la pestaña de la App
                         # ====================================================================
                         db.collection("personas_registradas").add({
                             "nombre": nombre,

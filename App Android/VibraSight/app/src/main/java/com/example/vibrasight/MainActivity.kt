@@ -1,11 +1,12 @@
 /*
-OBJETIVO: Dashboard Profesional con Pestañas, Bitacora y Registro Permanente.
+OBJETIVO: Dashboard Profesional con Pestañas, Bitacora, Registro Permanente y Control OLED/IP.
 INTEGRANTES: Jorge Ivan Muñiz Samano, Hazziel Enrique Ramirez Vilches
 PROYECTO: VibraSight
 */
 
 package com.example.vibrasight
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.util.Base64
@@ -22,6 +23,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,6 +38,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.SetOptions
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -167,7 +171,7 @@ class MainActivity : ComponentActivity() {
 }
 
 // ==============================================================================
-// 5. INTERFAZ GRAFICA CON TABS
+// 5. INTERFAZ GRAFICA CON TABS Y CONTROL DINAMICO
 // ==============================================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -178,23 +182,17 @@ fun VibraSightApp(viewModel: VibraSightViewModel = viewModel()) {
     val zumbadorActivo by viewModel.zumbadorActivo.collectAsState()
 
     val context = LocalContext.current
+
+    // Configuración de Memoria Local para la IP
+    val sharedPref = context.getSharedPreferences("VibraSightPrefs", Context.MODE_PRIVATE)
+    var ipMac by remember { mutableStateOf(sharedPref.getString("ip_mac", "192.168.100.122") ?: "192.168.100.122") }
+
     var mostrarDialogoRegistro by remember { mutableStateOf(false) }
+    var mostrarDialogoConfig by remember { mutableStateOf(false) }
     var tabIndex by remember { mutableStateOf(0) }
     val tabs = listOf("Monitor", "Bitácora", "Registros")
 
     val formatoFecha = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault())
-
-    val reproductorVideo = remember {
-        WebView(context).apply {
-            webViewClient = WebViewClient()
-            settings.javaScriptEnabled = true
-            settings.loadWithOverviewMode = true
-            settings.useWideViewPort = true
-            settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
-            val htmlData = "<html><body style=\"margin:0;padding:0;background-color:black;\"><img src=\"http://192.168.100.122:5050/video\" width=\"100%\" height=\"100%\" style=\"object-fit:contain;\"/></body></html>"
-            loadDataWithBaseURL(null, htmlData, "text/html", "UTF-8", null)
-        }
-    }
 
     Scaffold(
         topBar = {
@@ -205,6 +203,11 @@ fun VibraSightApp(viewModel: VibraSightViewModel = viewModel()) {
                             text = if (sensores.luz_detectada) "¡Buenos días!" else "¡Buenas noches!",
                             fontWeight = FontWeight.Bold
                         )
+                    },
+                    actions = {
+                        IconButton(onClick = { mostrarDialogoConfig = true }) {
+                            Icon(imageVector = Icons.Filled.Settings, contentDescription = "Configuración IP")
+                        }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                 )
@@ -252,16 +255,42 @@ fun VibraSightApp(viewModel: VibraSightViewModel = viewModel()) {
                     }
 
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        // 1. REPRODUCTOR DE VIDEO REACTIVO A LA IP
                         item {
                             Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                                 Column(modifier = Modifier.padding(12.dp)) {
                                     Text("Camara IA (Servidor Local)", style = MaterialTheme.typography.titleMedium)
                                     Spacer(modifier = Modifier.height(8.dp))
-                                    AndroidView(factory = { reproductorVideo }, modifier = Modifier.fillMaxWidth().height(200.dp))
+                                    AndroidView(
+                                        modifier = Modifier.fillMaxWidth().height(200.dp),
+                                        factory = { ctx ->
+                                            WebView(ctx).apply {
+                                                webViewClient = WebViewClient()
+                                                settings.javaScriptEnabled = true
+                                                settings.loadWithOverviewMode = true
+                                                settings.useWideViewPort = true
+                                                settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
+                                                settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                            }
+                                        },
+                                        // Update se llama automáticamente si ipMac cambia
+                                        update = { webView ->
+                                            val urlVideo = "http://${ipMac}:5050/video?rand=${System.currentTimeMillis()}"
+                                            val htmlData = """
+                                                <html>
+                                                <body style="margin:0;padding:0;background-color:#1e1e1e;display:flex;justify-content:center;align-items:center;">
+                                                    <img src="$urlVideo" width="100%" height="100%" style="object-fit:contain;"/>
+                                                </body>
+                                                </html>
+                                            """.trimIndent()
+                                            webView.loadDataWithBaseURL("http://$ipMac:5050", htmlData, "text/html", "UTF-8", null)
+                                        }
+                                    )
                                 }
                             }
                         }
 
+                        // 2. ESTADO DEL SISTEMA
                         item {
                             Card(modifier = Modifier.fillMaxWidth()) {
                                 Column(modifier = Modifier.padding(16.dp)) {
@@ -276,6 +305,43 @@ fun VibraSightApp(viewModel: VibraSightViewModel = viewModel()) {
                             }
                         }
 
+                        // 3. CONTROL DE PANTALLA OLED
+                        item {
+                            var mensajeOled by remember { mutableStateOf("") }
+                            Card(modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Text("Intercomunicador (Pantalla OLED)", style = MaterialTheme.typography.titleMedium)
+                                    Text("Escribe un mensaje para mostrar en la puerta", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        OutlinedTextField(
+                                            value = mensajeOled,
+                                            onValueChange = { mensajeOled = it },
+                                            modifier = Modifier.weight(1f),
+                                            label = { Text("Mensaje...") },
+                                            singleLine = true
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        IconButton(
+                                            onClick = {
+                                                if (mensajeOled.isNotBlank()) {
+                                                    // Guardar con merge para no borrar otros comandos (como el zumbador)
+                                                    FirebaseFirestore.getInstance().collection("comandos").document("app")
+                                                        .set(mapOf("mensaje_oled" to mensajeOled.trim()), SetOptions.merge())
+                                                    Toast.makeText(context, "Mensaje enviado a la OLED", Toast.LENGTH_SHORT).show()
+                                                    mensajeOled = ""
+                                                }
+                                            },
+                                            colors = IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.primary)
+                                        ) {
+                                            Icon(imageVector = Icons.Filled.Send, contentDescription = "Enviar a OLED", tint = MaterialTheme.colorScheme.onPrimary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 4. CONTROL DE ZUMBADOR
                         item {
                             Card(modifier = Modifier.fillMaxWidth()) {
                                 Row(
@@ -344,7 +410,45 @@ fun VibraSightApp(viewModel: VibraSightViewModel = viewModel()) {
         }
 
         // ==============================================================================
-        // DIALOGO REDISEÑADO DE REGISTRO BIOMETRICO
+        // DIALOGO DE CONFIGURACION (IP)
+        // ==============================================================================
+        if (mostrarDialogoConfig) {
+            var tempIp by remember { mutableStateOf(ipMac) }
+
+            AlertDialog(
+                onDismissRequest = { mostrarDialogoConfig = false },
+                title = { Text("Configuración de Red") },
+                text = {
+                    Column {
+                        Text("Ingresa la dirección IP local de la computadora (Mac) que ejecuta el servidor de cámara Python.", style = MaterialTheme.typography.bodySmall)
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = tempIp,
+                            onValueChange = { tempIp = it },
+                            label = { Text("Dirección IPv4") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        if (tempIp.isNotBlank()) {
+                            ipMac = tempIp.trim()
+                            sharedPref.edit().putString("ip_mac", ipMac).apply()
+                            Toast.makeText(context, "IP Actualizada", Toast.LENGTH_SHORT).show()
+                            mostrarDialogoConfig = false
+                        }
+                    }) { Text("Guardar IP") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { mostrarDialogoConfig = false }) { Text("Cancelar") }
+                }
+            )
+        }
+
+        // ==============================================================================
+        // DIALOGO DE REGISTRO BIOMETRICO
         // ==============================================================================
         if (mostrarDialogoRegistro) {
             var nombre by remember { mutableStateOf("") }
@@ -377,7 +481,7 @@ fun VibraSightApp(viewModel: VibraSightViewModel = viewModel()) {
                         ) {
                             Icon(imageVector = Icons.Filled.CameraAlt, contentDescription = "Camara")
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text(if (imageBitmap == null) "Capturar Foto" else "Foto Guardada ")
+                            Text(if (imageBitmap == null) "Capturar Foto" else "Foto Guardada ✓")
                         }
                     }
                 },
@@ -389,11 +493,8 @@ fun VibraSightApp(viewModel: VibraSightViewModel = viewModel()) {
                             val base64Img = procesarBitmapABase64(imageBitmap!!)
 
                             if (base64Img != null) {
-                                // 1. Mandamos la foto pesada a la coleccion temporal para Python
-                                // El servidor de Python se encargará de confirmar y guardar en "personas_registradas"
                                 val registroIA = hashMapOf("nombre" to nombre.trim(), "token" to tokenBase, "imagen_base64" to base64Img)
                                 db.collection("registro_biometrico").add(registroIA)
-
                                 Toast.makeText(context, "Enviando rostro al servidor IA...", Toast.LENGTH_SHORT).show()
                                 mostrarDialogoRegistro = false
                             }
@@ -408,4 +509,5 @@ fun VibraSightApp(viewModel: VibraSightViewModel = viewModel()) {
             )
         }
     }
+    
 }

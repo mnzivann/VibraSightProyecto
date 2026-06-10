@@ -1,5 +1,5 @@
 """
-OBJETIVO: Gestion de Firebase, Telemetria Ambiental, Distancia y Dashboard.
+OBJETIVO: Gestion de Firebase, Telemetria Ambiental, Distancia, Dashboard y OLED.
 INTEGRANTES: Jorge Ivan Muñiz Samano, Hazziel Enrique Ramirez Vilches
 PROYECTO: VibraSight
 """
@@ -9,6 +9,7 @@ import time
 import json
 import network
 import dht
+import ssd1306  # Libreria necesaria para la pantalla OLED
 from umqtt.simple import MQTTClient
 
 # --- CONFIGURACION DE MQTT ---
@@ -25,6 +26,8 @@ PIN_ZUMBADOR = 13
 PIN_DHT = 15
 PIN_TRIG = 14       # HC-SR04 Disparador
 PIN_ECHO = 27       # HC-SR04 Receptor
+PIN_SCL = 22        # Pantalla OLED
+PIN_SDA = 21        # Pantalla OLED
 
 # --- CONFIGURACION DE LOGICA DEL FOCO ---
 MODO_ACTIVO_BAJO = True 
@@ -46,6 +49,19 @@ trig = machine.Pin(PIN_TRIG, machine.Pin.OUT)
 echo = machine.Pin(PIN_ECHO, machine.Pin.IN)
 trig.value(0)
 
+# Inicializacion de Pantalla OLED
+pantalla_disponible = False
+try:
+    i2c = machine.SoftI2C(scl=machine.Pin(PIN_SCL), sda=machine.Pin(PIN_SDA))
+    oled = ssd1306.SSD1306_I2C(128, 64, i2c)
+    oled.fill(0)
+    oled.text("VibraSight", 24, 20)
+    oled.text("Sistema Listo", 12, 40)
+    oled.show()
+    pantalla_disponible = True
+except Exception as e:
+    print("No se detecto pantalla OLED o hay error de I2C:", e)
+
 # Estados iniciales
 zumbador.value(0)
 foco_activo = False
@@ -63,27 +79,71 @@ def gestionar_rele(estado):
 
 def medir_distancia():
     """Emite un pulso ultrasonico y calcula la distancia en cm."""
-    # Asegurar que el trigger este en bajo
     trig.value(0)
     time.sleep_us(5)
     
-    # Enviar pulso de 10 microsegundos
     trig.value(1)
     time.sleep_us(10)
     trig.value(0)
     
-    # Medir el tiempo que tarda el eco en regresar (timeout de 30ms)
     duracion_us = machine.time_pulse_us(echo, 1, 30000)
     
     if duracion_us > 0:
-        # Velocidad del sonido aprox 343 m/s -> 29.1 us/cm
         distancia_cm = (duracion_us / 2) / 29.1
         return round(distancia_cm, 2)
     else:
-        return -1.0 # Retorna -1 si no detecta obstaculos o falla
+        return -1.0 
+
+def mostrar_mensaje_oled(mensaje):
+    """Muestra un mensaje en la OLED, haciendo saltos de linea si es muy largo."""
+    if not pantalla_disponible: return
+    
+    oled.fill(0)
+    oled.text("MENSAJE:", 0, 0)
+    
+    # Dividir el texto para que quepa en la pantalla (Max ~16 caracteres por linea)
+    palabras = mensaje.split()
+    lineas = []
+    linea_actual = ""
+    
+    for palabra in palabras:
+        if len(linea_actual) + len(palabra) + 1 <= 16:
+            linea_actual += (palabra + " ")
+        else:
+            lineas.append(linea_actual)
+            linea_actual = palabra + " "
+    lineas.append(linea_actual)
+
+    # Imprimir lineas en la pantallita (cada renglon baja 12 pixeles)
+    y = 16
+    for l in lineas[:4]: # Soporta maximo 4 renglones de mensaje
+        oled.text(l.strip(), 0, y)
+        y += 12
+        
+    oled.show()
 
 # ==============================================================================
-# GESTION DE CREDENCIALES Y CONEXION WI-FI (Se mantiene intacto)
+# GESTION DE CREDENCIALES Y CONEXION WI-FI
+# ==============================================================================
+def cargar_credenciales():
+    try:
+        with open('wifi.json', 'r') as archivo:
+            return json.load(archivo)
+    except Exception:
+        return None
+
+def guardar_credenciales(ssid, password):
+    try:
+        with open('wifi.json', 'w') as archivo:
+            json.dump({'ssid': ssid, 'password': password}, archivo)
+        print("Credenciales guardadas en la memoria del ESP32.")
+    except Exception as e:
+        print("Error al guardar credenciales:", e)
+
+
+
+# ==============================================================================
+# GESTION DE CREDENCIALES Y CONEXION WI-FI AUTOMATICA
 # ==============================================================================
 def cargar_credenciales():
     try:
@@ -107,28 +167,28 @@ def conectar_wifi_interactivo():
     if wlan.isconnected():
         wlan.disconnect()
 
+    # 1. INTENTO DE CONEXIÓN AUTOMÁTICA
     credenciales = cargar_credenciales()
     if credenciales:
         ssid_guardado = credenciales.get('ssid')
         pass_guardado = credenciales.get('password')
-        print(f"\nRed guardada detectada en memoria: '{ssid_guardado}'")
-        opcion = input("Deseas conectar a esta red? (s/n): ").strip().lower()
-        if opcion == 's' or opcion == 'si':
-            print(f"Intentando conectar a: '{ssid_guardado}'...")
-            wlan.connect(ssid_guardado, pass_guardado)
-            timeout = 15
-            while not wlan.isconnected() and timeout > 0:
-                print(".", end="")
-                time.sleep(1)
-                timeout -= 1
-            if wlan.isconnected():
-                print(f"\nConexion automatica exitosa. IP: {wlan.ifconfig()[0]}")
-                return
-            else:
-                print("\nFallo la conexion a la red guardada. Iniciando escaneo manual...")
+        print(f"\nRed guardada detectada: '{ssid_guardado}'. Conectando automaticamente...")
+        
+        wlan.connect(ssid_guardado, pass_guardado)
+        timeout = 15
+        while not wlan.isconnected() and timeout > 0:
+            print(".", end="")
+            time.sleep(1)
+            timeout -= 1
+            
+        if wlan.isconnected():
+            print(f"\nConexion exitosa. IP: {wlan.ifconfig()[0]}")
+            return # Termina la funcion y arranca el programa
         else:
-            print("Omitiendo red guardada. Iniciando escaneo manual...")
+            print("\nFallo la conexion automatica. El router puede estar apagado.")
+            print("Iniciando escaneo manual de respaldo...")
 
+    # 2. ESCANEO MANUAL (Solo se ejecuta si es la primera vez o falló la automática)
     print("\nEncendiendo radio Wi-Fi y escaneando redes cercanas...")
     time.sleep(1)
     redes_crudas = wlan.scan()
@@ -156,15 +216,18 @@ def conectar_wifi_interactivo():
                 ssid_elegido = redes_validas[indice]['ssid']
                 password = input(f"Ingresa la contrasena (deja en blanco si es red abierta): ")
                 print(f"Negociando IP con {ssid_elegido}...")
+                
                 if password == "":
                     wlan.connect(ssid_elegido)
                 else:
                     wlan.connect(ssid_elegido, password)
+                    
                 timeout = 20
                 while not wlan.isconnected() and timeout > 0:
                     print(".", end="")
                     time.sleep(1)
                     timeout -= 1
+                    
                 if wlan.isconnected():
                     print(f"\nConexion exitosa. IP: {wlan.ifconfig()[0]}")
                     guardar_credenciales(ssid_elegido, password)
@@ -175,6 +238,7 @@ def conectar_wifi_interactivo():
                 print("Numero fuera de rango.")
         except ValueError:
             print("Entrada no valida.")
+                  
 
 # ==============================================================================
 # RECEPCION DE COMANDOS REMOTOS
@@ -182,11 +246,18 @@ def conectar_wifi_interactivo():
 def recibir_comando(topic, msg):
     try:
         datos = json.loads(msg.decode('utf-8'))
+        
         if datos.get("zumbador") is True:
             print("Orden remota: Activando zumbador desde la App")
             zumbador.value(1)
             time.sleep(2)
             zumbador.value(0)
+            
+        if "mensaje_oled" in datos:
+            texto = datos["mensaje_oled"]
+            print("Orden remota: Mostrando mensaje en OLED ->", texto)
+            mostrar_mensaje_oled(texto)
+            
     except Exception as e:
         print("Error procesando comando remoto:", e)
 
@@ -214,6 +285,11 @@ while True:
         timbre_presionado = bool(btn_timbre.value())
         if timbre_presionado:
             zumbador.value(1)
+            # Limpiar la pantalla cuando tocan el timbre para que el mensaje anterior no se quede pegado
+            if pantalla_disponible:
+                oled.fill(0)
+                oled.text("Tocando...", 25, 25)
+                oled.show()
         else:
             zumbador.value(0)
 
@@ -223,11 +299,11 @@ while True:
         if not foco_activo and valor_crudo > PUNTO_APAGADO:
             gestionar_rele(True)
             foco_activo = True
-            print("Oscuridad detectada -> Foco ON")
+            print("Oscuridad detectada")
         elif foco_activo and valor_crudo < PUNTO_ENCENDIDO:
             gestionar_rele(False)
             foco_activo = False
-            print("Luz detectada -> Foco OFF")
+            print("Luz detectada")
 
         luz_detectada_status = not foco_activo
 
