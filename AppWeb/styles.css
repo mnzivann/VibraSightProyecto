@@ -1,0 +1,166 @@
+:root {
+    --primary: #6200EE;
+    --primary-light: #BB86FC;
+    --background: #f5f5f5;
+    --surface: #ffffff;
+    --on-surface: #000000;
+    --error: #B00020;
+    --success: #27AE60;
+}
+body {
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--background);
+    margin: 0;
+    padding: 0;
+    color: var(--on-surface);
+}
+/* Encabezado */
+header {
+    background-color: var(--primary-light);
+    color: black;
+    padding: 15px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: bold;
+    font-size: 1.2rem;
+}
+/* Pestañas */
+.tabs {
+    display: flex;
+    background-color: var(--surface);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+.tab {
+    flex: 1;
+    text-align: center;
+    padding: 15px;
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    font-weight: bold;
+    color: gray;
+}
+.tab.active {
+    border-bottom-color: var(--primary);
+    color: var(--primary);
+}
+/* Contenedores */
+.content {
+    display: none;
+    padding: 20px;
+    max-width: 600px;
+    margin: 0 auto;
+}
+.content.active {
+    display: block;
+}
+/* Tarjetas */
+.card {
+    background-color: var(--surface);
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+.card-title {
+    font-size: 1.1rem;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+/* Alertas visuales */
+.alert-banner {
+    color: white;
+    text-align: center;
+    padding: 15px;
+    border-radius: 8px;
+    font-weight: bold;
+    font-size: 1.2rem;
+    margin-bottom: 15px;
+    display: none;
+}
+/* Video */
+#video-container {
+    width: 100%;
+    height: 250px;
+    background-color: #1e1e1e;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border-radius: 8px;
+    overflow: hidden;
+}
+#videoFeed {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+/* Formularios y Botones */
+input[type="text"], input[type="file"] {
+    width: calc(100% - 20px);
+    padding: 10px;
+    margin-bottom: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+button {
+    background-color: var(--primary);
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+}
+button:hover {
+    opacity: 0.9;
+}
+.row-between {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 5px;
+}
+/* Switch */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 50px;
+    height: 24px;
+}
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-color: #ccc;
+    transition: .4s;
+    border-radius: 24px;
+}
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 16px; width: 16px;
+    left: 4px; bottom: 4px;
+    background-color: white;
+    transition: .4s;
+    border-radius: 50%;
+}
+input:checked + .slider { background-color: var(--primary); }
+input:checked + .slider:before { transform: translateX(26px); }
+
+.fab {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background-color: var(--primary);
+    color: white;
+    border-radius: 50%;
+    width: 56px;
+    height: 56px;
+    font-size: 24px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    cursor: pointer;
+    z-index: 1000;
+}

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VibraSight Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <header>
+        <span id="saludo">¡Cargando...!</span>
+        <button onclick="configurarIP()" style="background:transparent; color:black; font-size:1.5rem; padding:0;">⚙️</button>
+    </header>
+
+    <div class="tabs">
+        <div class="tab active" onclick="switchTab('monitor')">Monitor</div>
+        <div class="tab" onclick="switchTab('bitacora')">Bitácora</div>
+        <div class="tab" onclick="switchTab('registros')">Registros</div>
+    </div>
+
+    <div id="monitor" class="content active">
+        <div id="alertaTimbre" class="alert-banner" style="background-color: var(--primary);">ALGUIEN TOCANDO EL TIMBRE</div>
+        <div id="alertaPresencia" class="alert-banner">PRESENCIA: <span id="nombrePresencia"></span></div>
+
+        <div class="card">
+            <div class="card-title">Cámara IA (Servidor Local)</div>
+            <div id="video-container">
+                <img id="videoFeed" src="" alt="Cámara fuera de línea o IP incorrecta" />
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">Estado del Sistema</div>
+            <div class="row-between"><span>Temp / Humedad:</span> <span id="val-temp">-- C | -- %</span></div>
+            <div class="row-between"><span>Distancia (Radar):</span> <span id="val-dist">-- cm</span></div>
+            <div class="row-between"><span>Identidad IA:</span> <span id="val-ia">Despejado</span></div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">Intercomunicador (Pantalla OLED)</div>
+            <p style="font-size: 0.8rem; color: gray; margin-top:0;">Escribe un mensaje para mostrar en la puerta</p>
+            <div style="display: flex; gap: 10px;">
+                <input type="text" id="inputOled" placeholder="Mensaje..." style="margin:0; flex:1;">
+                <button id="btnOled">Enviar</button>
+            </div>
+        </div>
+
+        <div class="card row-between" style="align-items: center;">
+            <div>
+                <div class="card-title" style="margin:0;">Zumbador Automático</div>
+                <div style="font-size: 0.8rem; color: gray;">Sonar al detectar timbre/desconocidos</div>
+            </div>
+            <label class="switch">
+                <input type="checkbox" id="checkZumbador">
+                <span class="slider"></span>
+            </label>
+        </div>
+
+        <div class="card row-between" style="align-items: center;">
+            <div>
+                <div class="card-title" style="margin:0;">Radar Ultrasónico</div>
+                <div style="font-size: 0.8rem; color: gray;">Activar escaneo de servomotor</div>
+            </div>
+            <label class="switch">
+                <input type="checkbox" id="checkRadar" checked>
+                <span class="slider"></span>
+            </label>
+        </div>
+    </div>
+
+    <div id="bitacora" class="content">
+        <h3 style="margin-top:0;">Historial de Eventos</h3>
+        <div id="listaAlertas"></div>
+    </div>
+
+    <div id="registros" class="content">
+        <h3 style="margin-top:0;">Personas Autorizadas</h3>
+        <div id="listaPersonas"></div>
+        <div class="fab" id="btnNuevoRegistro" style="display: none;">+</div>
+    </div>
+
+    <div id="dialogoRegistro" class="card" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); z-index:2000; width: 300px;">
+        <div class="card-title">Registrar Rostro</div>
+        <input type="text" id="nuevoNombre" placeholder="Nombre de la Persona">
+        <input type="file" id="nuevaFoto" accept="image/*" capture="environment">
+        <div style="display:flex; justify-content:flex-end; gap:10px;">
+            <button onclick="document.getElementById('dialogoRegistro').style.display='none'" style="background:gray;">Cancelar</button>
+            <button id="btnGuardarRostro">Guardar</button>
+        </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>
