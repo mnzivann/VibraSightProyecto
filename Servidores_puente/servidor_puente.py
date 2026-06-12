@@ -70,13 +70,13 @@ def registrar_alerta_asincrona(tipo, descripcion):
 # ESCUCHA DE COMANDOS Y REGISTROS DESDE LA APP (CONTROL BIDIRECCIONAL)
 # ==============================================================================
 def escuchar_comandos_app():
-    """Se suscribe a Firebase para escuchar cuando el usuario presiona botones en la App."""
+    """Se suscribe a Firebase para escuchar cuando el usuario presiona botones en la App/Web."""
     def on_snapshot(doc_snapshot, changes, read_time):
         for doc in doc_snapshot:
             if doc.exists:
                 datos = doc.to_dict()
                 
-                # 1. Comando: Zumbador
+                # 1. Comando: Zumbador (Dispara la alarma desde el celular)
                 if datos.get("activar_zumbador") is True:
                     print("ORDEN REMOTA: Activando zumbador desde la App...")
                     cliente_mqtt.publish(TOPIC_COMANDO_ESP32, json.dumps({"zumbador": True}))
@@ -88,8 +88,16 @@ def escuchar_comandos_app():
                     print(f"ORDEN REMOTA: Mensaje OLED recibido -> '{mensaje_recibido}'")
                     cliente_mqtt.publish(TOPIC_COMANDO_ESP32, json.dumps({"mensaje_oled": mensaje_recibido}))
                     db.collection("comandos").document("app").update({"mensaje_oled": ""})
+                    
+                # 3. Comando: Control del Radar Ultrasónico
+                if "radar_movimiento" in datos:
+                    estado_radar = datos["radar_movimiento"]
+                    print(f"ORDEN REMOTA: Radar establecido a -> {'ON' if estado_radar else 'OFF'}")
+                    cliente_mqtt.publish(TOPIC_COMANDO_ESP32, json.dumps({"radar": estado_radar}))
+                    # Limpiamos el comando en Firebase
+                    db.collection("comandos").document("app").update({"radar_movimiento": firestore.DELETE_FIELD})
                 
-    print("Suscrito a comandos remotos de la App.")
+    print("Suscrito a comandos remotos de la App/Web.")
     db.collection("comandos").document("app").on_snapshot(on_snapshot)
 
 def escuchar_registros_biometricos():
@@ -105,34 +113,23 @@ def escuchar_registros_biometricos():
                 if nombre and token and img_b64:
                     print(f"Descargando nuevo rostro desde la App: {nombre}")
                     try:
-                        # 1. Decodificar la imagen
                         img_data = base64.b64decode(img_b64)
-                        
-                        # 2. Asegurar que la carpeta existe
                         carpeta = "rostros_registrados"
                         if not os.path.exists(carpeta):
                             os.makedirs(carpeta)
                             
-                        # 3. Guardar el archivo fisico
                         ruta_archivo = os.path.join(carpeta, f"{nombre}_{token}.jpg")
                         with open(ruta_archivo, "wb") as f:
                             f.write(img_data)
                             
                         print(f"Rostro guardado en: {ruta_archivo}")
-                        
-                        # 4. Ordenarle al servidor de camara que recargue la RAM
                         cliente_mqtt.publish(TOPIC_COMANDO_CAMARA, json.dumps({"accion": "recargar_biometria"}))
                         
-                        # ====================================================================
-                        # Guardar el registro permanente en Firestore para la pestaña de la App
-                        # ====================================================================
                         db.collection("personas_registradas").add({
                             "nombre": nombre,
                             "token": token
                         })
                         print(f"Registro permanente creado en Firestore para {nombre}.")
-                        
-                        # 5. Borrar el documento de Firebase para no gastar almacenamiento
                         db.collection("registro_biometrico").document(change.document.id).delete()
                         
                     except Exception as e:
@@ -163,11 +160,15 @@ def on_message(client, userdata, msg):
         elif msg.topic == TOPIC_IA:
             if payload.get("presencia_ia") is True:
                 nombre = payload.get("nombre_persona", "Desconocido")
-                print(f"Evento: IA identifico a {nombre}. Subiendo datos...")
+                print(f"Evento: IA identifico a {nombre}. Subiendo datos y disparando actuadores...")
                 
-                if nombre == "Desconocido":
-                    client.publish(TOPIC_COMANDO_ESP32, json.dumps({"zumbador": True}))
+                # =====================================================================
+                # NUEVA LÓGICA DE ACTUADORES: Enviar identidad al ESP32
+                # El ESP32 tocará la melodía de éxito o la alarma según el nombre
+                # =====================================================================
+                client.publish(TOPIC_COMANDO_ESP32, json.dumps({"identidad_ia": nombre}))
                 
+                # Tareas en segundo plano de Firebase (Base de datos y Notificaciones)
                 threading.Thread(target=tarea_firebase_base_datos, args=("sensores", "lecturas_actuales", payload, True)).start()
                 
                 titulo = "Alerta de Seguridad" if nombre == "Desconocido" else "Notificacion de Acceso"

@@ -108,91 +108,128 @@ cliente_mqtt.connect(MQTT_BROKER, 1883, 60)
 cliente_mqtt.loop_start() 
 
 # ==============================================================================
-# MOTOR DE IA Y LECTURA DE WEBCAM LOCAL
+# MOTOR DE IA Y LECTURA DE WEBCAM LOCAL (MAC)
 # ==============================================================================
 def motor_de_ia():
     global frame_procesado, ia_activada, tiempo_limite_ia
     global persona_detectada_actualmente, nombre_detectado_actualmente
     
     ultimo_cambio = 0
-    print("Iniciando cámara local de la Mac...")
+    contador_frames = 0
     
-    # El 0 indica la cámara principal de tu computadora
+    # Guardamos los resultados del último cuadro procesado por la IA
+    estado_ia_guardado = False
+    nombre_en_cuadro_guardado = "Desconocido"
+    cajas_rostros = []  # Para mantener los cuadros verdes/rojos fluidos
+    
+    # =====================================================================
+    # CONEXIÓN A CÁMARA LOCAL
+    # =====================================================================
+    print("Conectando a la camara web integrada de la Mac...")
+    
+    # El 0 indica la primera cámara conectada al sistema
     camara = cv2.VideoCapture(0)
     
     if not camara.isOpened():
-        print("Error: No se pudo acceder a la cámara de la computadora.")
+        print("Error: No se pudo acceder a la camara local.")
         return
+
+    # --- OPTIMIZACIÓN 1: Limitar resolución de captura ---
+    camara.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    camara.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
     print("Motor de IA en espera (Modo Ahorro de Energia).")
 
     while True:
-        ret, frame = camara.read()
+        ret, frame_crudo = camara.read()
         if not ret:
-            print("Error al leer fotograma local.")
+            print("Error al leer fotograma de la camara local. Reintentando...")
             time.sleep(0.5)
             continue
+
+        # Forzamos redimensión por seguridad
+        frame = cv2.resize(frame_crudo, (640, 480))
+        contador_frames += 1
 
         if ia_activada:
             if time.time() > tiempo_limite_ia:
                 ia_activada = False
                 print("IA entrando en modo ahorro de energia (Standby).")
+                cajas_rostros = [] # Limpiamos dibujos
                 if persona_detectada_actualmente:
                     persona_detectada_actualmente = False
                     nombre_detectado_actualmente = ""
                     cliente_mqtt.publish(TOPIC_IA, json.dumps({"presencia_ia": False, "nombre_persona": ""}))
             else:
-                small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
-                rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
-                
-                face_locations = face_recognition.face_locations(rgb_small_frame)
-                face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
-                
-                estado_ia = len(face_locations) > 0
-                nombre_en_cuadro = "Desconocido"
-
-                for face_encoding, face_location in zip(face_encodings, face_locations):
-                    matches = face_recognition.compare_faces(rostros_conocidos_encodings, face_encoding, tolerance=0.55)
-                    nombre_asignado = "Desconocido"
-
-                    if True in matches:
-                        face_distances = face_recognition.face_distance(rostros_conocidos_encodings, face_encoding)
-                        best_match_index = np.argmin(face_distances)
-                        if matches[best_match_index]:
-                            nombre_asignado = rostros_conocidos_nombres[best_match_index]
+                # --- OPTIMIZACIÓN 3: Frame Skipping (Procesar 1 de cada 4 cuadros) ---
+                if contador_frames % 4 == 0:
+                    small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+                    rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
                     
-                    nombre_en_cuadro = nombre_asignado
+                    face_locations = face_recognition.face_locations(rgb_small_frame)
+                    face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
+                    
+                    estado_ia_guardado = len(face_locations) > 0
+                    nombre_en_cuadro_guardado = "Desconocido"
+                    cajas_rostros = []
 
-                    top, right, bottom, left = face_location
-                    top *= 4
-                    right *= 4
-                    bottom *= 4
-                    left *= 4
+                    for face_encoding, face_location in zip(face_encodings, face_locations):
+                        matches = face_recognition.compare_faces(rostros_conocidos_encodings, face_encoding, tolerance=0.55)
+                        nombre_asignado = "Desconocido"
 
-                    color_caja = (0, 0, 255) if nombre_asignado == "Desconocido" else (0, 255, 0)
-                    cv2.rectangle(frame, (left, top), (right, bottom), color_caja, 2)
-                    cv2.putText(frame, nombre_asignado.upper(), (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_caja, 2)
-
-                if (estado_ia != persona_detectada_actualmente) or (estado_ia and nombre_en_cuadro != nombre_detectado_actualmente):
-                    tiempo_actual = time.time()
-                    if tiempo_actual - ultimo_cambio > 2.0:
-                        persona_detectada_actualmente = estado_ia
-                        nombre_detectado_actualmente = nombre_en_cuadro
-                        ultimo_cambio = tiempo_actual
+                        if True in matches:
+                            face_distances = face_recognition.face_distance(rostros_conocidos_encodings, face_encoding)
+                            best_match_index = np.argmin(face_distances)
+                            if matches[best_match_index]:
+                                nombre_asignado = rostros_conocidos_nombres[best_match_index]
                         
-                        payload = {
-                            "presencia_ia": persona_detectada_actualmente,
-                            "nombre_persona": nombre_detectado_actualmente
-                        }
-                        cliente_mqtt.publish(TOPIC_IA, json.dumps(payload))
-                        print(f"Identidad evaluada enviada al puente: {nombre_detectado_actualmente}")
+                        nombre_en_cuadro_guardado = nombre_asignado
 
-        ret_encode, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 65])
+                        top, right, bottom, left = face_location
+                        # Devolvemos las coordenadas al tamaño original de 640x480
+                        cajas_rostros.append({
+                            "top": top * 4, 
+                            "right": right * 4, 
+                            "bottom": bottom * 4, 
+                            "left": left * 4, 
+                            "nombre": nombre_asignado
+                        })
+
+                    # Enviar MQTT si hubo cambio estable
+                    if (estado_ia_guardado != persona_detectada_actualmente) or (estado_ia_guardado and nombre_en_cuadro_guardado != nombre_detectado_actualmente):
+                        tiempo_actual = time.time()
+                        if tiempo_actual - ultimo_cambio > 2.0:
+                            persona_detectada_actualmente = estado_ia_guardado
+                            nombre_detectado_actualmente = nombre_en_cuadro_guardado
+                            ultimo_cambio = tiempo_actual
+                            
+                            payload = {
+                                "presencia_ia": persona_detectada_actualmente,
+                                "nombre_persona": nombre_detectado_actualmente
+                            }
+                            cliente_mqtt.publish(TOPIC_IA, json.dumps(payload))
+                            print(f"Identidad evaluada enviada al puente: {nombre_detectado_actualmente}")
+
+                # --- DIBUJAR SOBRE EL FRAME ---
+                for caja in cajas_rostros:
+                    color_caja = (0, 0, 255) if caja["nombre"] == "Desconocido" else (0, 255, 0)
+                    cv2.rectangle(frame, (caja["left"], caja["top"]), (caja["right"], caja["bottom"]), color_caja, 2)
+                    cv2.putText(frame, caja["nombre"].upper(), (caja["left"], caja["top"] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_caja, 2)
+
+        # --- OPTIMIZACIÓN 2: Compresión agresiva JPEG (50%) para la red ---
+        ret_encode, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
         if ret_encode:
             with lock_memoria:
                 frame_procesado = buffer.tobytes()
         
-        time.sleep(0.04)
+        # ==========================================================
+        # VISUALIZACIÓN EN TIEMPO REAL EN LA MAC
+        # ==========================================================
+        cv2.imshow("VibraSight - Monitor de IA Local", frame)
+        cv2.waitKey(1) 
+        # ==========================================================
+
+        time.sleep(0.01)
 
 # ==============================================================================
 # SERVIDOR FLASK
@@ -210,6 +247,14 @@ def video_feed():
 
 if __name__ == "__main__":
     cargar_base_datos_biometrica()
-    threading.Thread(target=motor_de_ia, daemon=True).start()
+    
+    # 1. Mandamos el servidor de la App (Flask) a un hilo secundario
+    threading.Thread(
+        target=lambda: app.run(host='0.0.0.0', port=5050, threaded=True, use_reloader=False), 
+        daemon=True
+    ).start()
+    
     print("Servidor web escuchando en el puerto 5050...")
-    app.run(host='0.0.0.0', port=5050, threaded=True)
+    
+    # 2. Corremos el motor de IA y la ventana de OpenCV en el Hilo Principal
+    motor_de_ia()
